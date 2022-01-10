@@ -1,9 +1,13 @@
+#IDE files
+.idea/
+
 # servroot is typically the nginx/Kong workingdirectory when testing
 servroot
 
 # packed distribution format for LuaRocks
 *.rock
-# exclude Pongo shell history
+# exclude Pongo
+pongo
 .pongo/.ash_history
 # exclude LuaCov statistics file
 luacov.stats.out
