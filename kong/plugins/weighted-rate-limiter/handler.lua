@@ -133,6 +133,20 @@ function RateLimitingHandler:access(conf)
     year = conf.year,
   }
 
+  -- todo: add cost to usage below
+  local route_cost = conf.route_cost
+  local cost = 1
+  if kong.router.get_service() then
+    local route = kong.router.get_route()
+    if route.id and route_cost then
+      for entry in route_cost do
+        if entry.route_id == route_id then
+          cost = entry.cost
+        end
+      end
+    end
+  end
+
   local usage, stop, err = get_usage(conf, identifier, current_timestamp, limits)
   if err then
     if not fault_tolerant then

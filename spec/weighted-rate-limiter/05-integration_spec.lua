@@ -7,7 +7,7 @@ local REDIS_PORT = 6379
 local REDIS_DB_1 = 1
 local REDIS_DB_2 = 2
 
-
+local PLUGIN_NAME = "weighted-rate-limiter"
 local SLEEP_TIME = 1
 
 
@@ -31,7 +31,7 @@ describe("Plugin: weighted-rate-limiter (integration)", function()
       "services",
       "plugins",
     }, {
-      "weighted-rate-limiter"
+      PLUGIN_NAME
     })
   end)
 
@@ -55,7 +55,7 @@ describe("Plugin: weighted-rate-limiter (integration)", function()
         hosts        = { "redistest1.com" },
       })
       assert(bp.plugins:insert {
-        name = "rate-limiting",
+        name = PLUGIN_NAME,
         route = { id = route1.id },
         config = {
           minute         = 1,
@@ -70,8 +70,9 @@ describe("Plugin: weighted-rate-limiter (integration)", function()
       local route2 = assert(bp.routes:insert {
         hosts        = { "redistest2.com" },
       })
+
       assert(bp.plugins:insert {
-        name = "rate-limiting",
+        name = PLUGIN_NAME,
         route = { id = route2.id },
         config = {
           minute         = 1,
@@ -82,9 +83,18 @@ describe("Plugin: weighted-rate-limiter (integration)", function()
           fault_tolerant = false,
         }
       })
+
       assert(helpers.start_kong({
+        -- set the strategy
+        database   = strategy,
+        -- use the custom test template to create a local mock server
         nginx_conf = "spec/fixtures/custom_nginx.template",
+        -- make sure our plugin gets loaded
+        plugins = "bundled," .. PLUGIN_NAME,
+        -- write & load declarative config, only if 'strategy=off'
+        declarative_config = strategy == "off" and helpers.make_yaml_file() or nil,
       }))
+
       client = helpers.proxy_client()
     end)
 

@@ -33,7 +33,7 @@ describe("Plugin: rate-limiting (schema)", function()
 
   it("proper config allows weights (path)", function()
     local config = { second = 10, limit_by = "path", path = "/request",
-                     route_weight = {route_id=1, wieght=10} }
+                     route_cost = {{route_id=1, cost=10}} }
     local ok, _, err = v(config, schema_def)
     assert.truthy(ok)
     assert.is_nil(err)
