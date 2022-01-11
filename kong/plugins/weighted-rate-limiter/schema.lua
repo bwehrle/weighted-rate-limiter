@@ -8,7 +8,7 @@ typedefs.route_cost = Schema.define {
   fields = {
     {
       route_id = {
-        type = "integer"
+        type = "string"
       },
     },
     {

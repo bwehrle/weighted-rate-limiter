@@ -6,7 +6,7 @@ local REDIS_HOST     = helpers.redis_host
 local REDIS_PORT     = 6379
 local REDIS_PASSWORD = ""
 local REDIS_DATABASE = 1
-
+local PLUGIN_NAME    = "weighted-rate-limiter"
 
 local fmt = string.format
 local proxy_client = helpers.proxy_client
@@ -78,7 +78,7 @@ local function flush_redis()
 end
 
 
-for _, strategy in helpers.each_strategy() do
+for _, strategy in ipairs({ "postgres" }) do
   for _, policy in ipairs({ "local", "redis" }) do
     describe(fmt("Plugin: rate-limiting (access) with policy: %s [#%s]", policy, strategy), function()
       local bp
@@ -88,7 +88,14 @@ for _, strategy in helpers.each_strategy() do
         helpers.kill_all()
         flush_redis()
 
-        bp, db = helpers.get_db_utils(strategy)
+        bp, db = helpers.get_db_utils(strategy, {
+          "routes",
+          "services",
+          "plugins",
+        }, {
+          PLUGIN_NAME
+        })
+
 
         local consumer1 = bp.consumers:insert {
           custom_id = "provider_123",
@@ -117,7 +124,8 @@ for _, strategy in helpers.each_strategy() do
           hosts = { "test1.com" },
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route1.id },
           config = {
             policy         = policy,
@@ -139,7 +147,8 @@ for _, strategy in helpers.each_strategy() do
           }),
         })
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route_grpc_1.id },
           config = {
             policy         = policy,
@@ -156,7 +165,8 @@ for _, strategy in helpers.each_strategy() do
           hosts      = { "test2.com" },
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route2.id },
           config = {
             minute         = 3,
@@ -179,7 +189,8 @@ for _, strategy in helpers.each_strategy() do
           route = { id = route3.id },
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route3.id },
           config = {
             minute         = 6,
@@ -193,7 +204,8 @@ for _, strategy in helpers.each_strategy() do
           }
         })
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route3.id },
           consumer = { id = consumer1.id },
           config      = {
@@ -216,7 +228,8 @@ for _, strategy in helpers.each_strategy() do
           route = { id = route4.id },
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route4.id },
           consumer = { id = consumer1.id },
           config           = {
@@ -234,7 +247,8 @@ for _, strategy in helpers.each_strategy() do
           hosts = { "test5.com" },
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           route = { id = route5.id },
           config = {
             policy              = policy,
@@ -258,7 +272,8 @@ for _, strategy in helpers.each_strategy() do
           service = service,
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           service = { id = service.id },
           config = {
             policy         = policy,
@@ -277,7 +292,8 @@ for _, strategy in helpers.each_strategy() do
           service = service,
         }
 
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           service = { id = service.id },
           config = {
             limit_by       = "path",
@@ -293,8 +309,14 @@ for _, strategy in helpers.each_strategy() do
         })
 
         assert(helpers.start_kong({
+          -- set the strategy
           database   = strategy,
+          -- use the custom test template to create a local mock server
           nginx_conf = "spec/fixtures/custom_nginx.template",
+          -- make sure our plugin gets loaded
+          plugins = "bundled," .. PLUGIN_NAME,
+          -- write & load declarative config, only if 'strategy=off'
+          declarative_config = strategy == "off" and helpers.make_yaml_file() or nil,
         }))
       end)
 
@@ -941,10 +963,19 @@ for _, strategy in helpers.each_strategy() do
       lazy_setup(function()
         helpers.kill_all()
         flush_redis()
-        bp, db = helpers.get_db_utils(strategy)
+
+        bp, db = helpers.get_db_utils(strategy, {
+          "routes",
+          "services",
+          "plugins",
+        }, {
+          PLUGIN_NAME
+        })
+
 
         -- global plugin (not attached to route, service or consumer)
-        bp.rate_limiting_plugins:insert({
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
           config = {
             limit_by       = "service",
             policy         = policy,
@@ -969,9 +1000,38 @@ for _, strategy in helpers.each_strategy() do
           service = service2,
         }
 
+        local service = bp.services:insert()
+        local route = bp.routes:insert {
+          hosts = { "test-service-cost.com" },
+          service = service,
+        }
+
+        assert(bp.plugins:insert {
+          name = PLUGIN_NAME,
+          service = { id = service.id },
+          config = {
+            limit_by       = "path",
+            path           = "/status/200",
+            policy         = policy,
+            minute         = 60,
+            fault_tolerant = false,
+            redis_host     = REDIS_HOST,
+            redis_port     = REDIS_PORT,
+            redis_password = REDIS_PASSWORD,
+            redis_database = REDIS_DATABASE,
+            route_cost = {{route_id = route.id, cost = 10}}
+          }
+        })
+
         assert(helpers.start_kong({
+          -- set the strategy
           database   = strategy,
+          -- use the custom test template to create a local mock server
           nginx_conf = "spec/fixtures/custom_nginx.template",
+          -- make sure our plugin gets loaded
+          plugins = "bundled," .. PLUGIN_NAME,
+          -- write & load declarative config, only if 'strategy=off'
+          declarative_config = strategy == "off" and helpers.make_yaml_file() or nil,
         }))
       end)
 
@@ -980,6 +1040,18 @@ for _, strategy in helpers.each_strategy() do
         assert(db:truncate())
       end)
 
+      it_with_retry("blocks if exceeding limit with #cost", function()
+        for i = 1, 6 do
+          local res = GET("/status/200", { headers = { Host = "test-service-cost.com" } }, 200)
+
+          assert.are.same(60, tonumber(res.headers["x-ratelimit-limit-minute"]))
+          assert.are.same(60 - i*10, tonumber(res.headers["x-ratelimit-remaining-minute"]))
+          assert.are.same(60, tonumber(res.headers["ratelimit-limit"]))
+          assert.are.same(60 - i*10, tonumber(res.headers["ratelimit-remaining"]))
+          local reset = tonumber(res.headers["ratelimit-reset"])
+          assert.equal(true, reset <= 60 and reset > 0)
+        end
+      end)
       it_with_retry("blocks if exceeding limit", function()
         for i = 1, 6 do
           local res = GET("/status/200", { headers = { Host = "test1.com" } }, 200)

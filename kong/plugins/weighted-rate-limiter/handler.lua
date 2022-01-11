@@ -139,10 +139,11 @@ function RateLimitingHandler:access(conf)
   if kong.router.get_service() then
     local route = kong.router.get_route()
     if route.id and route_cost then
-      for entry in route_cost do
-        if entry.route_id == route_id then
-          cost = entry.cost
+      for _, value in ipairs(route_cost) do do
+        if value.route_id == route_id then
+          cost = value.cost
         end
+      end
       end
     end
   end
@@ -171,7 +172,7 @@ function RateLimitingHandler:access(conf)
         local current_window = EXPIRATION[k]
         local current_remaining = v.remaining
         if stop == nil or stop == k then
-          current_remaining = current_remaining - 1
+          current_remaining = current_remaining - cost
         end
         current_remaining = max(0, current_remaining)
 
@@ -211,7 +212,7 @@ function RateLimitingHandler:access(conf)
     end
   end
 
-  local ok, err = timer_at(0, increment, conf, limits, identifier, current_timestamp, 1)
+  local ok, err = timer_at(0, increment, conf, limits, identifier, current_timestamp, cost)
   if not ok then
     kong.log.err("failed to create timer: ", err)
   end
